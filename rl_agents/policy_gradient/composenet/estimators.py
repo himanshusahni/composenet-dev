@@ -22,11 +22,11 @@ class Skill(object):
     state_dims: Dimensions of the input state.
   """
 
-  def __init__(self, name_scope='', reuse=False, state_dims=None):
+  def __init__(self, name_scope='', reuse=False, state_dims=None, channels=1):
     with tf.variable_scope(name_scope):
       # Placeholders for our input
       self.states = [tf.placeholder(shape=[
-        None, state_dims[0], state_dims[1], 1], dtype=tf.uint8, name="X")]
+        None, state_dims[0], state_dims[1], channels], dtype=tf.uint8, name="X")]
 
       # Normalize
       X = tf.to_float(self.states[0]) / 255.0
@@ -34,9 +34,9 @@ class Skill(object):
 
       # the graph structure
       with tf.variable_scope("shared", reuse=reuse):
-        self.embedding = self.build_shared_network(X)
+        self.embedding = self.build_shared_network(X, channels)
 
-  def build_shared_network(self, X):
+  def build_shared_network(self, X, channels):
     """
     Builds a 3-layer network conv -> conv -> fc.
     This network is shared by both the policy and value network.
@@ -50,7 +50,7 @@ class Skill(object):
     NUM_CONV_2_FILTERS = 20
 
     # Two convolutional layers.
-    w1 = weight_variable([3, 3, 1, NUM_CONV_1_FILTERS], name='w1')
+    w1 = weight_variable([3, 3, channels, NUM_CONV_1_FILTERS], name='w1')
     b1 = bias_variable([NUM_CONV_1_FILTERS])
     conv1 = tf.nn.relu(conv2d(X, w1) + b1)
 
@@ -108,8 +108,6 @@ class PolicyModule(object):
   def __init__(
       self, name_scope, trainable_scopes, num_outputs, embedder,
       global_final_layer=False):
-    print name_scope
-    print trainable_scopes
 
     # assuming batch size is same for everything
     self.batch_size = embedder.batch_size

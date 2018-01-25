@@ -36,6 +36,13 @@ def make_train_op(local_estimator, global_estimator, key_func, step):
   _, global_vars = zip(*global_estimator.grads_and_vars)
   global_vars = list(sorted(global_vars, key=key_func))
   local_global_grads_and_vars = list(zip(local_grads, global_vars))
+  # c = "Local variables: \n"
+  # for v in local_vars:
+      # c += v.name + '\n'
+  # c += 'Global variables: \n'
+  # for v in global_vars:
+      # c += v.name + '\n'
+  # sys.stderr.write(c)
   return global_estimator.optimizer.apply_gradients(local_global_grads_and_vars,
           global_step=step)
 
@@ -69,6 +76,7 @@ class Worker(object):
     self.epochs = 0
     self.task_step = task_step
     self.global_scopes = global_scopes
+    self.crashes = 0
 
     self.state = None
 
@@ -121,7 +129,8 @@ class Worker(object):
             return
 
           # Update the global networks
-          self.update(transitions, sess)
+          if len(transitions) > 0:
+              self.update(transitions, sess)
 
       except tf.errors.CancelledError:
         return
@@ -144,11 +153,27 @@ class Worker(object):
 
   def run_n_steps(self, n, sess):
     transitions = []
+    task_t = self.task_counter
+    global_t = self.global_counter
     for _ in range(n):
       # Take a step
       action_probs = self._policy_net_predict(self.state, sess)
       action = np.random.choice(np.arange(len(action_probs)), p=action_probs)
-      next_state, reward, done = self.env.step(action)
+      try:
+        next_state, reward, done = self.env.step(action)
+      except ValueError as ex:
+        self.crashes += 1
+        print "thread {} crashed, total {} times, on step {} with message {}"\
+          .format(
+          self.name,
+          self.crashes,
+          self.env.steps,
+          str(ex))
+        # the solution in this case is to just start a new episode
+        self.state = self.env.reset(max_steps=10)
+        self.ep_r = 0
+        self.ep_s = 0
+        break
 
       # Store transition
       transitions.append(Transition(

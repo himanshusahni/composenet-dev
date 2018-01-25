@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 from utils import *
 
-def build_shared_network(X):
+def build_shared_network(X, channels):
   """
   Builds a 3-layer network conv -> conv -> fc.
   This network is shared by both the policy and value network.
@@ -24,7 +24,7 @@ def build_shared_network(X):
   NUM_CONV_2_FILTERS = 20
 
   # Two convolutional layers.
-  w1 = weight_variable([3, 3, 1, NUM_CONV_1_FILTERS], name='w1')
+  w1 = weight_variable([3, 3, channels, NUM_CONV_1_FILTERS], name='w1')
   b1 = bias_variable([NUM_CONV_1_FILTERS])
   conv1 = tf.nn.relu(conv2d(X, w1) + b1)
 
@@ -52,14 +52,16 @@ class PolicyEstimator():
       Actor threads that don't update their local models and don't need
       train ops would set this to false.
     state_dims: Dimensions of the input state.
+    channels: num. of channels in input state
   """
 
-  def __init__(self, num_outputs, reuse=False, trainable=True, state_dims=None):
+  def __init__(self, num_outputs, reuse=False, trainable=True,
+          state_dims=None, channels=1):
     self.num_outputs = num_outputs
 
     # Placeholders for our input
     self.states = tf.placeholder(shape=[
-      None, state_dims[0], state_dims[1], 1], dtype=tf.uint8, name="X")
+      None, state_dims[0], state_dims[1], channels], dtype=tf.uint8, name="X")
     # The TD target value
     self.targets = tf.placeholder(shape=[None], dtype=tf.float32, name="y")
     # Integer id of which action was selected
@@ -71,7 +73,7 @@ class PolicyEstimator():
 
     # Graph shared with Value Net
     with tf.variable_scope("shared", reuse=reuse):
-      fc1 = build_shared_network(X)
+      fc1 = build_shared_network(X, channels)
 
 
     with tf.variable_scope("policy_net"):
@@ -116,13 +118,14 @@ class ValueEstimator():
       Actor threads that don't update their local models and don't need
       train ops would set this to false.
     state_dims: Dimensions of the input state.
+    channels: num. of channels in input state
   """
 
-  def __init__(self, reuse=False, trainable=True, state_dims=None):
+  def __init__(self, reuse=False, trainable=True, state_dims=None, channels=1):
     # Placeholders for our input
     # Our input are 4 RGB frames of shape 160, 160 each
     self.states = tf.placeholder(shape=[
-      None, state_dims[0], state_dims[1], 1], dtype=tf.uint8, name="X")
+      None, state_dims[0], state_dims[1], channels], dtype=tf.uint8, name="X")
     # The TD target value
     self.targets = tf.placeholder(shape=[None], dtype=tf.float32, name="y")
 
@@ -130,7 +133,7 @@ class ValueEstimator():
 
     # Graph shared with Value Net
     with tf.variable_scope("shared", reuse=reuse):
-      fc1 = build_shared_network(X)
+      fc1 = build_shared_network(X, channels)
 
     with tf.variable_scope("value_net"):
       self.logits = tf.contrib.layers.fully_connected(

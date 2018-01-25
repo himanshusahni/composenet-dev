@@ -6,11 +6,15 @@ Modified for the ComposeNet project by Saurabh Kumar.
 
 import sys
 import os
+import shutil
 import itertools
 import numpy as np
 import tensorflow as tf
 import time
 import logging
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 from estimators import ValueEstimator, PolicyEstimator
 from worker import make_copy_params_op
@@ -52,9 +56,14 @@ class PolicyEval(object):
     self.logger.addHandler(hdlr)
     self.logger.setLevel(logging.INFO)
 
+    self.crashes = 0
+
     # Local policy net
     with tf.variable_scope("policy_eval"):
-      self.policy_net = PolicyEstimator(policy_net.num_outputs, state_dims=self.env.get_state_size())
+      self.policy_net = PolicyEstimator(
+        policy_net.num_outputs,
+        state_dims=self.env.get_state_size(),
+        channels=self.env.get_num_channels())
 
     # Op to copy params from global policy/value net parameters
     self.copy_params_op = make_copy_params_op(
@@ -74,21 +83,53 @@ class PolicyEval(object):
       eval_rewards = []
       episode_lengths = []
 
-      for i in xrange(n_eval):
+      i = 0
+      while i < n_eval:
         # Run an episode
         done = False
         state = self.env.reset()
         total_reward = 0.0
         episode_length = 0
+        # if os.path.exists('experiment_logs/eval_runs/minecraft/apples/{}/{}'.format(global_step,i)):
+          # shutil.rmtree('experiment_logs/eval_runs/minecraft/apples/{}/{}'.format(global_step,i))
+        # os.makedirs('experiment_logs/eval_runs/minecraft/apples/{}/{}'.format(global_step,i))
+        # all_states = [state]
+        # all_rewards = [None]
+        # all_actions = [None]
         while not done:
           action_probs = self._policy_net_predict(state, sess)
           action = np.random.choice(np.arange(len(action_probs)), p=action_probs)
-          next_state, reward, done = self.env.step(action)
+          try:
+            next_state, reward, done = self.env.step(action)
+          except ValueError as ex:
+            self.crashes += 1
+            print "thread policy_eval crashed, total {} times, on step {} with message {}"\
+              .format(
+              self.crashes,
+              self.env.steps,
+              str(ex))
+            # the solution in this case is to just start a new episode
+            break
           total_reward += reward
           episode_length += 1
           state = next_state
-        eval_rewards.append(total_reward)
-        episode_lengths.append(episode_length)
+          # all_states.append(next_state)
+          # all_rewards.append(reward)
+          # all_actions.append(action)
+
+        # only add episode if successfully finished
+        if done:
+          eval_rewards.append(total_reward)
+          episode_lengths.append(episode_length)
+          i += 1
+
+        # for s, state in enumerate(all_states):
+          # fig, axarr = plt.subplots(1,3)
+          # for j in range(state.shape[-1]):
+              # axarr[j].imshow(state[:,:,j])
+          # plt.suptitle('Action: {}, Reward: {}'.format(all_actions[s], all_rewards[s]))
+          # fig.savefig('experiment_logs/eval_runs/minecraft/apples/{}/{}/{}.png'.format(global_step,i,s))
+          # plt.close('all')
 
       log_results(self.logger, global_step, eval_rewards, episode_lengths)
 
@@ -108,15 +149,6 @@ class PolicyEval(object):
     try:
       while not coord.should_stop():
         global_step, rewards, episode_lengths = self.eval(sess, self.n_eval)
-        # if np.percentile(rewards, 10) > 0.9:
-          # c+= 1
-        # else:
-          # c = 0
-        # if c == 5:
-          # sys.stderr.write(
-            # "Thread {} converged at {} steps!\n".format(
-            # self.task_id, global_step))
-          # coord.request_stop()
         # Sleep until next evaluation cycle
         time.sleep(eval_every)
     except tf.errors.CancelledError:

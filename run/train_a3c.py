@@ -30,7 +30,7 @@ sys.path.insert(0, '../rl_agents/policy_gradient/a3c')
 from estimators import ValueEstimator, PolicyEstimator
 from policy_eval import PolicyEval
 from worker import Worker
-from utils import make_env
+from make_env import make_env
 
 tf.flags.DEFINE_string("model_dir", "experiment_logs/a3c/", "Directory to save checkpoints to.")
 tf.flags.DEFINE_string("env", "objects_env", "Name of environment.")
@@ -38,6 +38,7 @@ tf.flags.DEFINE_string("task", "collect_0_avoid_1", "Task. Sequence of 'collect'
 tf.flags.DEFINE_integer("t_max", 5, "Number of steps before performing an update.")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 10, "Evaluate the policy every N seconds.")
+tf.flags.DEFINE_integer("n_eval", 50, "Evaluate the policy every N seconds.")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_integer("parallelism", 5, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 
@@ -72,8 +73,14 @@ with tf.device("/cpu:0"):
 
   # Global policy and value nets
   with tf.variable_scope("global") as vs:
-    policy_net = PolicyEstimator(num_outputs=len(VALID_ACTIONS), state_dims=env_.get_state_size())
-    value_net = ValueEstimator(reuse=True, state_dims=env_.get_state_size())
+    policy_net = PolicyEstimator(
+      num_outputs=len(VALID_ACTIONS),
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels())
+    value_net = ValueEstimator(
+      reuse=True,
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels())
 
   # Global step iterator
   global_counter = itertools.count()
@@ -83,7 +90,7 @@ with tf.device("/cpu:0"):
   for worker_id in range(NUM_WORKERS):
     worker = Worker(
       name="worker_{}".format(worker_id),
-      env = make_env(FLAGS.task, [FLAGS.object1, FLAGS.object2]),
+      env = make_env(FLAGS.env, FLAGS.task),
       policy_net=policy_net,
       value_net=value_net,
       global_counter=global_counter,
@@ -100,9 +107,10 @@ with tf.device("/cpu:0"):
   # Used to occasionally evaluate the policy and save
   # statistics and checkpoint model.
   pe = PolicyEval(
-    env = make_env(FLAGS.task, [FLAGS.object1, FLAGS.object2]),
+    env = make_env(FLAGS.env, FLAGS.task),
     policy_net=policy_net,
     saver=saver,
+    n_eval=FLAGS.n_eval,
     logfile=logfile,
     checkpoint_path=CHECKPOINT_DIR)
 

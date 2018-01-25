@@ -22,6 +22,7 @@ class World():
     STEP_COST = -0.01
     GRID_SIZE = 25
     DILATION_FACTOR = 3
+    NUM_CHANNELS = 1
     NUM_ACTIONS = 4
     NUM_OBJECTS = 3
 
@@ -80,6 +81,9 @@ class World():
     def get_num_actions(self):
         return self.NUM_ACTIONS
 
+    def get_num_channels(self):
+        return self.NUM_CHANNELS
+
     def generate_map(self):
 
         world = self.EMPTY_COLOR * np.ones((self.side_len, self.side_len))
@@ -123,7 +127,6 @@ class World():
 
         reward = self.reward()
         done = self.isTerminal()
-        action_list = ['up', 'down', 'left', 'right']
 
         self.image = self.construct_image()
 

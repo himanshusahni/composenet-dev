@@ -40,7 +40,8 @@ tf.flags.DEFINE_string("env", "objects_env", "Name of environment.")
 tf.flags.DEFINE_string("task", "collect_0_evade_1", "Name of environment.")
 tf.flags.DEFINE_integer("t_max", 5, "Number of steps before performing an update.")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
-tf.flags.DEFINE_integer("eval_every", 2, "Evaluate the policy every N seconds.")
+tf.flags.DEFINE_integer("eval_every", 10, "Evaluate the policy every N seconds.")
+tf.flags.DEFINE_integer("n_eval", 50, "Evaluate the policy every N seconds.")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_integer("parallelism", 5, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 
@@ -79,7 +80,8 @@ def create_compositions(n, skills, worker=None):
       name_scope = worker + '/' + name_scope
     skill_embedders.append(Skill(
       name_scope=name_scope,
-      state_dims=env_.get_state_size()))
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels()))
   # now all the compositions from left to right
   policy_compositions = [skill_embedders[0]]
   value_compositions = [skill_embedders[0]]
@@ -145,10 +147,10 @@ CHECKPOINT_DIR = os.path.join(MODEL_DIR, "checkpoints", FLAGS.task)
 LOG_DIR = os.path.join(MODEL_DIR, "logs", FLAGS.task)
 PRIMITIVES_DIR = os.path.join(FLAGS.trained_primitives, "checkpoints", FLAGS.env)
 TRANSFER_DIR = FLAGS.transfer_dir
-NUM_SKILLS = len(FLAGS.task.split('_'))/2
 
 SKILLS = []
 if FLAGS.env == 'objects_env':
+  NUM_SKILLS = len(FLAGS.task.split('_'))/2
   splt = FLAGS.task.split('_')
   i = 0
   while i < len(splt):
@@ -164,6 +166,9 @@ if FLAGS.env == 'objects_env':
     else:
         raise ValueError("Unrecognized subtask {}".format(splt[i]))
     i += 2
+elif FLAGS.env == 'minecraft':
+  NUM_SKILLS = 2
+  SKILLS = [0,3]
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -246,6 +251,7 @@ with tf.device("/cpu:0"):
     task_counter=global_counter,
     global_counter=global_counter,
     saver=saver,
+    n_eval=FLAGS.n_eval,
     logfile=logfile,
     checkpoint_path=CHECKPOINT_DIR+'/')
   ev.policy_net, _ = create_compositions(NUM_SKILLS, SKILLS, "policy_eval_0")
@@ -265,10 +271,10 @@ with tf.Session() as sess:
         scope='global_{}/'.format(p),
         collection=tf.GraphKeys.TRAINABLE_VARIABLES)
     to_load += tf.contrib.slim.get_variables(
-      scope='policy_net/'.format(p),
+      scope='policy_net/',
       collection=tf.GraphKeys.TRAINABLE_VARIABLES)
     to_load += tf.contrib.slim.get_variables(
-      scope='value_net/'.format(p),
+      scope='value_net/',
       collection=tf.GraphKeys.TRAINABLE_VARIABLES)
 
     loader = tf.train.Saver(to_load)

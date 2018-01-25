@@ -3,10 +3,18 @@
 
 Script for setting up environments for experiments
 """
+import sys
+import os
+from inspect import getsourcefile
+
+current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
+sys.path.append(os.path.join(current_path, 'minecraft'))
 
 import objects_env
+import minecraft_env
 
 def make_env(env, task):
+  # objects environment
   if env == 'objects_env':
     goal_arr = [0, 0, 0]
     splt = task.split('_')
@@ -37,5 +45,9 @@ def make_env(env, task):
         raise ValueError("Cannot re-specify same object twice")
       i += 2
     return objects_env.World(goal_arr=goal_arr)
+  # minecraft environment
+  if env == 'minecraft':
+      return minecraft_env.MinecraftEnv(
+        os.path.join(current_path,'minecraft/params_{}.cfg'.format(task)))
   else:
     raise NotImplementedError("only objects environment supported right now")

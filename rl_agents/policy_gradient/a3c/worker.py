@@ -76,10 +76,18 @@ class Worker(object):
     self.ep_r = 0
     self.ep_s = 0
 
+    self.crashes = 0
+
     # Create local policy/value nets that are not updated asynchronously
     with tf.variable_scope(name):
-      self.policy_net = PolicyEstimator(policy_net.num_outputs, state_dims=env.get_state_size())
-      self.value_net = ValueEstimator(reuse=True, state_dims=env.get_state_size())
+      self.policy_net = PolicyEstimator(
+        policy_net.num_outputs,
+        state_dims=env.get_state_size(),
+        channels=env.get_num_channels())
+      self.value_net = ValueEstimator(
+        reuse=True,
+        state_dims=env.get_state_size(),
+        channels=env.get_num_channels())
 
     # Op to copy params from global policy/valuenets
     self.copy_params_op = make_copy_params_op(
@@ -126,17 +134,38 @@ class Worker(object):
 
   def run_n_steps(self, n, sess):
     transitions = []
+    local_t = self.local_counter
+    global_t = self.global_counter
     for _ in range(n):
       # Take a step
       action_probs = self._policy_net_predict(self.state, sess)
       action = np.random.choice(np.arange(len(action_probs)), p=action_probs)
-      next_state, reward, done = self.env.step(action)
+      try:
+        next_state, reward, done = self.env.step(action)
+      except ValueError as ex:
+        self.crashes += 1
+        print "thread {} crashed, total {} times, on step {} with message {}"\
+          .format(
+          self.name,
+          self.crashes,
+          self.env.steps,
+          str(ex))
+        # the solution in this case is to just start a new episode
+        self.state = self.env.reset(max_steps=10)
+        self.ep_r = 0
+        self.ep_s = 0
+        break
+
+      ## following only happens if next state is successfully returned
       self.ep_r += reward
       self.ep_s += 1
-
       # Store transition
       transitions.append(Transition(
-        state=self.state, action=action, reward=reward, next_state=next_state, done=done))
+        state=self.state,
+        action=action,
+        reward=reward,
+        next_state=next_state,
+        done=done))
 
       # Increase local and global counters
       local_t = next(self.local_counter)
@@ -146,16 +175,6 @@ class Worker(object):
         tf.logging.info("{}: local Step {}, global step {}".format(self.name, local_t, global_t))
 
       if done:
-        # if global_t < 50000:
-          # self.state = self.env.reset(max_steps=10)
-        # elif global_t < 100000:
-          # self.state = self.env.reset(max_steps=20)
-        # elif global_t < 150000:
-          # self.state = self.env.reset(max_steps=30)
-        # elif global_t < 200000:
-          # self.state = self.env.reset(max_steps=40)
-        # else:
-        # sys.stderr.write("Thread {}, task {}, Global steps {}, episode reward {}, episode steps {}\n".format(self.name, 0, global_t, self.ep_r, self.ep_s))
         self.state = self.env.reset(max_steps=10)
         self.ep_r = 0
         self.ep_s = 0

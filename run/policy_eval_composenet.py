@@ -64,7 +64,9 @@ class PolicyEval(object):
     hdlr.setFormatter(formatter)
     self.logger.addHandler(hdlr)
     self.logger.setLevel(logging.INFO)
-    self.converged = False
+
+    self.crashes = 0
+
     self.global_scopes = global_scopes
 
   def create_copy_ops(self, key_func):
@@ -100,7 +102,8 @@ class PolicyEval(object):
       eval_rewards = []
       episode_lengths = []
 
-      for i in xrange(n_eval):
+      i = 0
+      while i < n_eval:
         # Run an episode
         done = False
         state = self.env.reset()
@@ -109,12 +112,26 @@ class PolicyEval(object):
         while not done:
           action_probs = self._policy_net_predict(state, sess)
           action = np.random.choice(np.arange(len(action_probs)), p=action_probs)
-          next_state, reward, done = self.env.step(action)
+          try:
+            next_state, reward, done = self.env.step(action)
+          except ValueError as ex:
+            self.crashes += 1
+            print "thread policy eval {} crashed, total {} times, on step {} with message {}"\
+              .format(
+              self.task_id,
+              self.crashes,
+              self.env.steps,
+              str(ex))
+            # the solution in this case is to just start a new episode
+            break
           total_reward += reward
           episode_length += 1
           state = next_state
-        eval_rewards.append(total_reward)
-        episode_lengths.append(episode_length)
+
+        if done:
+          eval_rewards.append(total_reward)
+          episode_lengths.append(episode_length)
+          i += 1
 
       log_results(self.logger,
         self.task_id,

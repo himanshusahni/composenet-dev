@@ -38,6 +38,7 @@ tf.flags.DEFINE_string("env", "objects_env", "Name of environment.")
 tf.flags.DEFINE_integer("t_max", 5, "Number of steps before performing an update.")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 10, "Evaluate the policy every N seconds.")
+tf.flags.DEFINE_integer("n_eval", 50, "Evaluate the policy every N seconds.")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_integer("parallelism", 30, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 
@@ -64,6 +65,11 @@ if FLAGS.env == 'objects_env':
   SKILLS = []
   for i in range(NUM_OBJECTS):
     SKILLS += ['collect_{}'.format(i), 'evade_{}'.format(i)]
+elif FLAGS.env == 'minecraft':
+  SKILLS = ['beacon', 'glowstone', 'lapis', 'apples', 'compass', 'feathers']
+  # worker_tasks = [0,0,0,0,0,0,1,1,1,2,2,2]
+  # NUM_WORKERS = len(worker_tasks)
+
 NUM_TASKS = len(SKILLS)
 
 # Depending on the game we may have a limited action space
@@ -91,7 +97,9 @@ if not os.path.exists(LOG_DIR):
 # create the environments to learn skills
 envs = []
 for worker_id in range(NUM_WORKERS):
-  task = SKILLS[worker_id % NUM_TASKS]
+  task_id = worker_id % NUM_TASKS
+  # task_id = worker_tasks[worker_id]
+  task = SKILLS[task_id]
   envs.append(make_env(FLAGS.env, task))
 
 with tf.device("/cpu:0"):
@@ -106,7 +114,8 @@ with tf.device("/cpu:0"):
   for task_id in range(NUM_TASKS):
     skill_embedder = Skill(
       name_scope='global_{}'.format(task_id),
-      state_dims=env_.get_state_size())
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels())
     policy_net = PolicyModule(
       name_scope='global_{}'.format(task_id),
       trainable_scopes=['global_{}/'.format(task_id), 'policy_net/'],
@@ -130,6 +139,7 @@ with tf.device("/cpu:0"):
   workers = []
   for worker_id in range(NUM_WORKERS):
     task_id = worker_id % NUM_TASKS
+    # task_id = worker_tasks[worker_id]
     # need curriculum?
     if task_id%2 == 1:
       curriculum = [5, 6, 7, 8, 9, 10]
@@ -155,7 +165,8 @@ with tf.device("/cpu:0"):
     # create local worker graph structure
     worker.skill_embedder = Skill(
       name_scope="worker_{}".format(worker_id),
-      state_dims=env_.get_state_size())
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels())
     worker.policy_net = PolicyModule(
       name_scope="worker_{}".format(worker_id),
       trainable_scopes=['worker_{}/'.format(worker_id)],
@@ -194,11 +205,13 @@ with tf.device("/cpu:0"):
       task_counter=task_counters[i],
       global_counter=global_counter,
       saver=saver,
+      n_eval=FLAGS.n_eval,
       logfile=logfile,
       checkpoint_path=CHECKPOINT_DIR+'/')
     ev.skill_embedder = Skill(
       name_scope="policy_eval_{}".format(i),
-      state_dims=env_.get_state_size())
+      state_dims=env_.get_state_size(),
+      channels=env_.get_num_channels())
     ev.policy_net = PolicyModule(
       name_scope="policy_eval_{}".format(i),
       trainable_scopes=[],
