@@ -46,10 +46,11 @@ class PolicyEval(object):
     env: environment to run in
     policy_net: A policy estimator
   """
-  def __init__(self, task_id, env, policy_net, global_scopes, task_counter,
+  def __init__(self, name, task_id, env, policy_net, global_scopes, task_counter,
       global_counter, saver=None, n_eval=50, logfile=None,
       checkpoint_path=None):
 
+    self.name = name
     self.env = env
     self.task_id = task_id
     self.global_policy_net = policy_net
@@ -58,7 +59,7 @@ class PolicyEval(object):
     self.counter = task_counter
     self.global_counter = global_counter
     self.checkpoint_path = checkpoint_path
-    self.logger = logging.getLogger('eval runs {}'.format(task_id))
+    self.logger = logging.getLogger('{}'.format(self.name))
     hdlr = logging.FileHandler(logfile)
     formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
     hdlr.setFormatter(formatter)
@@ -79,7 +80,7 @@ class PolicyEval(object):
         scope=gs,
         collection=tf.GraphKeys.TRAINABLE_VARIABLES)
     local_variables = tf.contrib.slim.get_variables(
-      scope="policy_eval_{}/".format(self.task_id),
+      scope="{}".format(self.name),
       collection=tf.GraphKeys.TRAINABLE_VARIABLES)
     self.copy_params_op = make_copy_params_op(
       global_variables, local_variables, key_func)
@@ -116,9 +117,9 @@ class PolicyEval(object):
             next_state, reward, done = self.env.step(action)
           except ValueError as ex:
             self.crashes += 1
-            print "thread policy eval {} crashed, total {} times, on step {} with message {}"\
+            print "thread crashed, total {} times, on step {} with message {}"\
               .format(
-              self.task_id,
+              self.name,
               self.crashes,
               self.env.steps,
               str(ex))
@@ -146,7 +147,7 @@ class PolicyEval(object):
     return next(task_step)-1, eval_rewards, episode_lengths
 
 
-  def continuous_eval(self, eval_every, sess, coord, converged_threads):
+  def continuous_eval(self, eval_every, sess, coord):
     """
     Continuously evaluates the policy every [eval_every] seconds.
     """

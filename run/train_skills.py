@@ -32,6 +32,7 @@ from make_env import make_env
 from estimators import Skill, CompositionModule, PolicyModule, ValueModule
 from policy_eval_composenet import PolicyEval
 from worker import Worker
+from regularizer_worker import RegularizerWorker, RegularizerPolicy
 
 tf.flags.DEFINE_string("model_dir", "experiment_logs/a4c", "Directory to save checkpoints to.")
 tf.flags.DEFINE_string("env", "objects_env", "Name of environment.")
@@ -184,11 +185,38 @@ with tf.device("/cpu:0"):
     worker.create_train_ops(key_func)
     workers.append(worker)
 
-  saver = tf.train.Saver(keep_checkpoint_every_n_hours=0.5, max_to_keep=2)
-
   logfile = os.path.join(
     LOG_DIR,
     '{:%Y-%m-%d_%H:%M:%S}.log'.format(datetime.now()))
+
+  # create regularizer worker
+  global_scopes = ["global_{}/".format(task_id) for task_id in range(NUM_TASKS)]
+  global_scopes += ["policy_net/"]
+  regularizer = RegularizerWorker(
+    name='regularizer_0',
+    envs=[make_env(FLAGS.env, task) for task in SKILLS],
+    policy_nets=global_policy_nets,
+    value_nets=global_value_nets,
+    global_counter=global_counter,
+    logfile=logfile,
+    global_scopes=global_scopes)
+
+  regularizer.skill_embedder = []
+  regularizer.policy_nets = []
+  for i, task in enumerate(SKILLS):
+      regularizer.skill_embedder.append(Skill(
+        name_scope="regularizer_0/global_{}".format(i),
+        state_dims=env_.get_state_size(),
+        channels=env_.get_num_channels()))
+      regularizer.policy_nets.append(RegularizerPolicy(
+        name_scope="regularizer_0",
+        num_outputs=len(VALID_ACTIONS),
+        embedder=regularizer.skill_embedder[i]))
+  regularizer.create_copy_ops()
+  regularizer.create_train_ops()
+
+
+  saver = tf.train.Saver(keep_checkpoint_every_n_hours=2, max_to_keep=2)
 
   # Used to occasionally evaluate the policy and save
   # statistics and checkpoint model.
@@ -198,6 +226,7 @@ with tf.device("/cpu:0"):
     global_scopes = ["global_{}/".format(i),
       "policy_net/",]
     ev = PolicyEval(
+      name='policy_eval_{}'.format(i),
       task_id=i,
       env=make_env(FLAGS.env, task),
       policy_net=global_policy_nets[i],
@@ -227,11 +256,10 @@ with tf.Session() as sess:
 
   # Start threads for policy eval task
   eval_threads = []
-  converged_threads = itertools.count()
   for ev in range(NUM_TASKS):
     eval_thread = threading.Thread(
       target=evaluators[ev].continuous_eval,
-      args=(FLAGS.eval_every, sess, coord, converged_threads))
+      args=(FLAGS.eval_every, sess, coord))
     eval_thread.start()
     eval_threads.append(eval_thread)
 
@@ -243,6 +271,12 @@ with tf.Session() as sess:
     t.start()
     worker_threads.append(t)
 
+  regularizer_thread = threading.Thread(
+      target=regularizer.run,
+      args=(sess, coord, FLAGS.t_max))
+  regularizer_thread.start()
+
   # Wait for all workers to finish
   coord.join(worker_threads)
   coord.join(eval_threads)
+  coord.join(regularizer_thread)
